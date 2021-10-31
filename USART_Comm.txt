@@ -8,7 +8,7 @@
 
 #define F_CPU 8000000  //8MHz
 
-#define FOSC 8000000                       // Clock Speed
+#define FOSC 8000000   // Clock Speed
 #define BAUD 9600
 #define MYUBRR FOSC/16/BAUD -1
 
@@ -18,43 +18,44 @@ volatile char rx_byte;
 
 void USART_Init(){
 	/*Set baud rate */
-	UBRRH = (MYUBRR >> 8);
-	UBRRL = MYUBRR;
+	UBRRH = (MYUBRR >> 8); // Nie mam zielonego pojêcia co to, ale instrukcja tak ka¿e
+	UBRRL = MYUBRR;   // Tak te¿
 
 	UCSRB |= (1 << RXEN) | (1 << TXEN);      // Enable receiver and transmitter
 	UCSRB |= (1 << RXCIE);                   // Enable the receiver interrupt
-	// Enable transmitter interrupt
+	UCSRB |= (1 << TXCIE);                  // Enable the transmit interrupt
 	UCSRC |= (1 << URSEL) |(1 << UCSZ1) | (1 << UCSZ0);    // Set frame: 8data, 1 stp
 
 }
 
 void USART_Transmit(unsigned char data) {
-	while ( !( UCSRA & (1<<UDRE)) ); // Czekaj na opró¿nienie budora transmicji
+	while ( !( UCSRA & (1<<UDRE)) );// Nie wiem czy to zadzia³a, bo nie umiem wysy³ac. // Czekaj na opró¿nienie budora transmicji
 	UDR = data; // W³ó¿ dane do UDR, wyœlij dane
 }
 
 unsigned char USART_Receive () {
-	 while ( !(UCSRA & (1 << RXC))); // data received
-	 return UDR;	// odbierz dane z bufora
+	while ( !(UCSRA & 0b10000000));
+	return UDR;	// odbierz dane z bufora
 }
 
 
-
 int main() {
-
-	DDRD = 0b11111111;
-	DDRB = 0b11111111;
-	DDRC = 0b00000000;
+	// Na ogó³ nie jestem pewien tych bitów bo robiê na sucho
+	DDRD = 0b00000011; // nie wiem czy ostatni bit nie powinien byc 0;
+	DDRC = 0x00;
+	DDRB = 0b00001111;
 	ADMUX = 0b01000000;
 	ADCSRA = 0b10000111;
 
 	TCCR1B |= (1<<WGM12); //w³¹czenie trybu CTC
 	TCCR1B |= (1<<CS10) | (1<<CS11); //ustawienie preskalera na 64
 	TCCR1A |= (1<<COM1A0);
-	OCR1A = 25000; //wartoœæ do której zlicza licznik
+	OCR1A = 25000; //wartoœæ do której zlicza licznik, i tak siê zmieni, ale coœ musi byc na pocz¹tku
 
-	sei();
-	// Main program loop
+	USART_Init(); // inicjalizacja komunikacji
+
+	sei(); // w³¹czanie przerwañ
+
 	while (1)
 	{
 		// Start an ADC conversion by setting ADSC bit (bit 6)
@@ -64,8 +65,6 @@ int main() {
 
 		OCR1A = 12500 - (10*ADC);
 
-
-		rx_byte = USART_Receive();			// get the byte
 		switch (rx_byte) {
 			case 'a':
 				PORTB = PORTB | (1 << PB4);
@@ -75,6 +74,7 @@ int main() {
 				PORTB = PORTB & ~(1 << PB4);
 			break;
 		}
+		rx_byte = 0;
 	}
 }
 
@@ -82,10 +82,10 @@ int main() {
 
 ISR (USART_RXC_vect)
 {
- //   ReceivedChar = UDR;                     // Read data from the RX buffer
- //   UDR = ReceivedChar;                     // Write the data to the TX buffer
+	rx_byte = USART_Receive();			// get the byte
+//	ReceivedChar = UDR;  // Nie wiem czy to potrzebne ->  Read data from the RX buffer
+//	UDR = ReceivedChar;  // |--->   Write the data to the TX buffer
 }
 
 ISR (USART_TXC_vect)
-{
-}
+{}
