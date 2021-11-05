@@ -1,0 +1,191 @@
+#include <avr/io.h>
+#include <stdlib.h>
+#include <string.h>
+#include <stdio.h>
+#include <util/delay.h>
+#include <avr/sfr_defs.h>
+#include <math.h>
+#include <avr/interrupt.h>
+#include <avr/eeprom.h>
+#include <avr/pgmspace.h>
+#include "HD44780.h"
+
+#ifndef _BV
+#define _BV(bit)				(1<<(bit))
+#endif
+
+#ifndef inb
+#define	inb(addr)			(addr)
+#endif
+
+#ifndef outb
+#define	outb(addr, data)	addr = (data)
+#endif
+
+#ifndef sbi
+#define sbi(reg,bit)		reg |= (_BV(bit))
+#endif
+
+#ifndef cbi
+#define cbi(reg,bit)		reg &= ~(_BV(bit))
+#endif
+
+#ifndef tbi
+#define tbi(reg,bit)		reg ^= (_BV(bit))
+#endif
+
+
+// MIN/MAX/ABS macros
+#define MIN(a,b)			((a<b)?(a):(b))
+#define MAX(a,b)			((a>b)?(a):(b))
+#define ABS(x)				((x>0)?(x):(-x))
+
+
+
+int Kp = 2;	//Wzmocnienie
+int Ti = 1;	//Sta³a czasowa ca³kowania
+int Td = 1;	//Sta³a czasowa ró¿niczkowania
+int dt = 1;	//Czas zmian wielkoœci
+
+int ep = 0; //uchyb poprzeni
+int en = 0; //uchyb nastêpny
+int U = 0;  //sygna³ steruj¹cy
+int C = 0;  //czêœc ca³kuj¹ca
+
+uint32_t wartosc_zadana;
+uint32_t wartosc_rzeczywista;
+
+
+
+
+void ADC_init() {   // funkcja dokonuj¹ca konfiguracji przetwornika
+	// Ustawienie Ÿród³a referencyjnego na AVCC = 5.0 V
+	sbi(ADMUX,REFS0);
+
+	// Ustawienie podzielnika czêstotliwoœci
+	sbi(ADCSRA,ADPS0);
+	sbi(ADCSRA,ADPS1);
+	sbi(ADCSRA,ADPS2);
+
+	// Uruchomienie uk³adu przetwornika
+	sbi(ADCSRA,ADEN);
+
+	// Ustawienie pinu pomiarowego
+	//sbi(ADMUX,MUX0); - przyk³ad. Wartoœci pocz¹tkowe s¹ ustawione na pin 0
+}
+
+uint32_t ADC_10bit() {
+	// Bit rozpoczynaj¹cy konwersjê
+	sbi(ADCSRA,ADSC);
+
+	// Oczekiwanie na wyzerowanie bitu konwersji
+	loop_until_bit_is_clear(ADCSRA,ADSC);
+
+	// Zwracanie zmierzonej wartoœci
+	return ADC;
+}
+
+// Funkcja przetabiaj¹ca wartoœc ADC na Volty
+uint32_t ADC_measure() {
+	uint32_t pomiar = ADC_10bit();  // wykonanie pomiaru
+	uint32_t wynik = pomiar * 500 / 1024;  // przerobienie pomiaru na wolty
+
+	return wynik;
+}
+
+void TimerInit_PWM() {
+	sbi(TCCR2,WGM21);
+	sbi(TCCR2,WGM20);
+
+	sbi(TCCR2,COM21);
+	sbi(TCCR2,COM20);
+
+	sbi(TCCR2,CS22);
+	sbi(TCCR2,CS21);
+	sbi(TCCR2,CS20); // PRESKALER 64
+
+
+	OCR2 = 120;// 8 000 000 / 256 (dzielnik) / 2 (2 razy na sekundê - okres 0.5 sekundy) = 15625
+
+	//Uruchomienie przerwania OCIE1A - na podstaiwe rozdzia³u 16.10.7
+//	sbi(TIMSK,OCIE2);
+}
+
+//Inicjalizacja Timer1 do wywolywania przerwania z czêstotliwoœci¹ 2Hz
+void TimerInit_PRZERWANIA() {
+	sbi(TCCR1B,WGM12);
+
+	sbi(TCCR1B,CS12);
+//	sbi(TCCR1B,CS11);
+//	sbi(TCCR1B,CS10); // PRESKALER 64
+
+
+	OCR1A = 31250; // 8 000 000 / 256 (dzielnik) / 2 (2 razy na sekundê - okres 0.5 sekundy) = 15625
+	sbi(TIMSK,OCIE1A);
+}
+
+
+// PROGRAM GLOWNY --------------------------------------------------------------------------------------------------------------------------------------------------------------------
+int main() {
+	LCD_Initalize(); // inicjalizacja wyœwietlacza
+	LCD_Home();
+	char text[20];  // zmienna pomocnicza na napis
+	DDRD = 0xff;
+	PORTD = 0x00;
+
+
+	TimerInit_PWM();
+	TimerInit_PRZERWANIA();
+
+	sbi(PORTA,PA0);
+	ADC_init();   // inicjalizacja przetwornika
+
+	sei();
+
+	while(1) {
+//		cbi(ADMUX,MUX0);   // ustawienie pomiarów na pin 0
+//		uint32_t wartosc_zadana = ADC_measure();  // dokonanie pomiaru
+
+//		sbi(ADMUX,MUX0);   // ustawienie pomiarów na pin 1
+//		uint32_t wartosc_rzeczywista = ADC_measure();  // dokonanie pomiaru
+		int calosc_z_rzeczywistej = wartosc_rzeczywista / 100;   // zrobienie liczb do wyswietlenia
+		int reszta_z_rzeczywistej = wartosc_rzeczywista % 100;
+
+//		en = wartosc_zadana - wartosc_rzeczywista;
+//		C += ((ep + en)/2)*dt;
+//		U = Kp * (en + (1/Ti) + Td*(en-ep)/dt);
+//		ep = en;
+
+		LCD_Clear(); // czyszczenie wyswietlacza
+		LCD_GoTo(0, 0);
+		sprintf(text, "Real: %i.%02iV",calosc_z_rzeczywistej,reszta_z_rzeczywistej);
+		LCD_WriteText(text); // wyswietlanie wartosci zadanej
+
+		LCD_GoTo(0, 1);
+		sprintf(text, "Real: %i",OCR2);
+		LCD_WriteText(text); // wyswietalnie wartosci rzeczywistej
+
+	//	OCR2 += U;
+
+		_delay_ms(100);
+
+	}
+}
+
+//Funkcja uruchamiana z przerwaniem po przepelnieniu licznika w timer1
+ISR(TIMER1_COMPA_vect) {
+	cbi(ADMUX,MUX0);
+	wartosc_zadana = ADC_measure();
+	sbi(ADMUX,MUX0);
+	wartosc_rzeczywista = ADC_measure();
+
+	en = wartosc_zadana/10 - wartosc_rzeczywista/10;
+	if (C < 100)
+		C = C + ((ep + en)/2)*dt;
+	U = Kp * (en + (1/Ti) + Td*(en-ep)/dt);
+	ep = en;
+	OCR2 -= U;
+}
+
+
+
