@@ -43,8 +43,13 @@
 
 
 int Kp = 1;	//Wzmocnienie
-int Ti = 1;	//Sta³a czasowa ca³kowania
+
+int Ti = 10;
+int Ki = 20;	//Sta³a czasowa ca³kowania
+
 int Td = 1;	//Sta³a czasowa ró¿niczkowania
+int Kd = 1;	//Sta³a czasowa ca³kowania
+
 int dt = 1;	//Czas zmian wielkoœci
 
 int ep = 0; //uchyb poprzeni
@@ -137,8 +142,40 @@ int main() {
 	sei();
 
 	while(1) {
+		cbi(ADMUX,MUX0);
+		wartosc_zadana = ADC_measure();
+		sbi(ADMUX,MUX0);
+		wartosc_rzeczywista = ADC_measure();
+
+		en = wartosc_zadana/10 - wartosc_rzeczywista/10; // -16
+
+		if (C + ((ep + en)/2)*dt < 500) //-30
+			if (C + ((ep + en)/2)*dt > -500)   //-30
+				C = C + ((ep + en)/2)*dt;
+
+		U = Kp*en + (C/Ki) + Kd*(en-ep)/dt; //
+		ep = en;
+		if (OCR2-U > 0)
+			if (OCR2-U < 255)
+				OCR2 -= U;;
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 //		cbi(ADMUX,MUX0);   // ustawienie pomiarów na pin 0
 //		uint32_t wartosc_zadana = ADC_measure();  // dokonanie pomiaru
+		int calosc_z_zadana = wartosc_zadana / 100;   // zrobienie liczb do wyswietlenia
+		int reszta_z_zadana = wartosc_zadana % 100;
 
 //		sbi(ADMUX,MUX0);   // ustawienie pomiarów na pin 1
 //		uint32_t wartosc_rzeczywista = ADC_measure();  // dokonanie pomiaru
@@ -152,14 +189,13 @@ int main() {
 
 		LCD_Clear(); // czyszczenie wyswietlacza
 		LCD_GoTo(0, 0);
-		sprintf(text, "Real: %i.%02iV",calosc_z_rzeczywistej,reszta_z_rzeczywistej);
+		sprintf(text, "%i.%02iV,,%i.%02iV",calosc_z_rzeczywistej,reszta_z_rzeczywistej,calosc_z_zadana,reszta_z_zadana);
 		LCD_WriteText(text); // wyswietlanie wartosci zadanej
 
 		LCD_GoTo(0, 1);
-		sprintf(text, "Wypelnienie: %i",OCR2);
+		sprintf(text, "%i,%i,%i,%i",OCR2,ep,C,OCR2-U);
 		LCD_WriteText(text); // wyswietalnie wartosci rzeczywistej
 
-	//	OCR2 += U;
 
 		_delay_ms(100);
 
@@ -168,17 +204,7 @@ int main() {
 
 //Funkcja uruchamiana z przerwaniem po przepelnieniu licznika w timer1
 ISR(TIMER1_COMPA_vect) {
-	cbi(ADMUX,MUX0);
-	wartosc_zadana = ADC_measure();
-	sbi(ADMUX,MUX0);
-	wartosc_rzeczywista = ADC_measure();
 
-	en = wartosc_zadana/10 - wartosc_rzeczywista/10;
-	if (C < 100)
-		C = C + ((ep + en)/2)*dt;
-	U = Kp * (en + (1/Ti) + Td*(en-ep)/dt);
-	ep = en;
-	OCR2 -= U;
 }
 
 
