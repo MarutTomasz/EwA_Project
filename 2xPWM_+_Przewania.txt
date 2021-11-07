@@ -1,0 +1,201 @@
+#include <avr/io.h>
+#include <stdlib.h>
+#include <string.h>
+#include <stdio.h>
+#include <util/delay.h>
+#include <avr/sfr_defs.h>
+#include <math.h>
+#include <avr/interrupt.h>
+#include <avr/eeprom.h>
+#include <avr/pgmspace.h>
+#include "HD44780.h"
+
+#ifndef _BV
+#define _BV(bit)				(1<<(bit))
+#endif
+
+#ifndef inb
+#define	inb(addr)			(addr)
+#endif
+
+#ifndef outb
+#define	outb(addr, data)	addr = (data)
+#endif
+
+#ifndef sbi
+#define sbi(reg,bit)		reg |= (_BV(bit))
+#endif
+
+#ifndef cbi
+#define cbi(reg,bit)		reg &= ~(_BV(bit))
+#endif
+
+#ifndef tbi
+#define tbi(reg,bit)		reg ^= (_BV(bit))
+#endif
+
+
+// MIN/MAX/ABS macros
+#define MIN(a,b)			((a<b)?(a):(b))
+#define MAX(a,b)			((a>b)?(a):(b))
+#define ABS(x)				((x>0)?(x):(-x))
+
+
+
+int Kp = 1;	//Wzmocnienie
+
+int Ti = 10;
+int Ki = 20;	//Sta³a czasowa ca³kowania
+
+int Td = 1;	//Sta³a czasowa ró¿niczkowania
+int Kd = 1;	//Sta³a czasowa ca³kowania
+
+int dt = 1;	//Czas zmian wielkoœci
+
+int ep = 0; //uchyb poprzeni
+int en = 0; //uchyb nastêpny
+int U = 0;  //sygna³ steruj¹cy
+int C = 0;  //czêœc ca³kuj¹ca
+
+uint32_t wartosc_zadana;
+uint32_t wartosc_rzeczywista;
+
+
+
+
+void ADC_init() {   // funkcja dokonuj¹ca konfiguracji przetwornika
+	// Ustawienie Ÿród³a referencyjnego na AVCC = 5.0 V
+	sbi(ADMUX,REFS0);
+
+	// Ustawienie podzielnika czêstotliwoœci
+	sbi(ADCSRA,ADPS0);
+	sbi(ADCSRA,ADPS1);
+	sbi(ADCSRA,ADPS2);
+
+	// Uruchomienie uk³adu przetwornika
+	sbi(ADCSRA,ADEN);
+}
+
+uint32_t ADC_10bit() {
+	// Bit rozpoczynaj¹cy konwersjê
+	sbi(ADCSRA,ADSC);
+
+	// Oczekiwanie na wyzerowanie bitu konwersji
+	loop_until_bit_is_clear(ADCSRA,ADSC);
+
+	// Zwracanie zmierzonej wartoœci
+	return ADC;
+}
+
+// Funkcja przetabiaj¹ca wartoœc ADC na Volty
+uint32_t ADC_measure() {
+	uint32_t pomiar = ADC_10bit();  // wykonanie pomiaru
+	uint32_t wynik = pomiar * 500 / 1024;  // przerobienie pomiaru na wolty
+
+	return wynik;
+}
+
+void Przerwania_Zewnetrzne() {
+	sbi(MCUCR,ISC10); // zmiana stanu logicznego na INT1
+
+	sbi(GICR,INT1); // w³¹czanie zewnêtrznego przerwania na INT1
+}
+
+void TimerInit_PWM_1() {
+	sbi(TCCR0,WGM01);
+	sbi(TCCR0,WGM00);
+
+	sbi(TCCR0,COM01);
+	sbi(TCCR0,COM00);
+
+	sbi(TCCR0,CS02);
+//	sbi(TCCR0,CS01);
+//	sbi(TCCR0,CS00); // PRESKALER 256
+
+
+	OCR0 = 120;// 8 000 000 / 1024 (dzielnik) / 2 (2 razy na sekundê - okres 0.5 sekundy) = 15625
+}
+
+void TimerInit_PWM_2() {
+	sbi(TCCR2,WGM21);
+	sbi(TCCR2,WGM20);
+
+	sbi(TCCR2,COM21);
+	sbi(TCCR2,COM20);
+
+	sbi(TCCR2,CS22);
+	sbi(TCCR2,CS21);
+//	sbi(TCCR2,CS20); // PRESKALER 256
+
+
+	OCR2 = 120;// 8 000 000 / 1024 (dzielnik) / 2 (2 razy na sekundê - okres 0.5 sekundy) = 15625
+}
+
+//Inicjalizacja Timer1 do wywolywania przerwania z czêstotliwoœci¹ 2Hz
+void TimerInit_PRZERWANIA() {
+	sbi(TCCR1B,WGM12);
+
+	sbi(TCCR1B,CS12);
+//	sbi(TCCR1B,CS11);
+//	sbi(TCCR1B,CS10); // PRESKALER 256
+
+
+	OCR1A = 3125; // 8 000 000 / 256 (dzielnik) / 2 (2 razy na sekundê - okres 0.5 sekundy) = 15625
+	sbi(TIMSK,OCIE1A);
+}
+
+
+// PROGRAM GLOWNY --------------------------------------------------------------------------------------------------------------------------------------------------------------------
+int main() {
+	DDRD = 0xff;
+	PORTD = 0x00;
+
+	cbi(DDRD,PD3);
+	sbi(PORTD,PD3);
+
+	DDRB = 0xff;
+	PORTB = 0x00;
+
+	Przerwania_Zewnetrzne();
+	TimerInit_PWM_1();
+	TimerInit_PWM_2();
+	TimerInit_PRZERWANIA();
+
+	sbi(PORTA,PA0);
+	sbi(PORTA,PA1);
+	ADC_init();   // inicjalizacja przetwornika
+
+	sei();
+
+	while(1) {
+		_delay_ms(50);
+
+	}
+}
+
+//Funkcja uruchamiana z przerwaniem po przepelnieniu licznika w timer1
+ISR(TIMER1_COMPA_vect) {
+	cbi(ADMUX,MUX0);
+	wartosc_zadana = ADC_measure();
+	sbi(ADMUX,MUX0);
+	wartosc_rzeczywista = ADC_measure();
+
+	en = wartosc_zadana/10 - wartosc_rzeczywista/10; // -16
+
+	if (C + ((ep + en)/2)*dt < 500) //-30
+		if (C + ((ep + en)/2)*dt > -500)   //-30
+			C = C + ((ep + en)/2)*dt;
+
+	U = Kp*en + (C/Ki) + Kd*(en-ep)/dt; //
+	ep = en;
+	if (OCR2-U > 0)
+		if (OCR2-U < 255){
+			OCR2 -= U;
+			OCR0 -=U;
+		}
+}
+
+ISR(INT1_vect) {
+	tbi(PORTD,PD1);
+}
+
