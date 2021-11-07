@@ -15,7 +15,7 @@
 #include <avr/pgmspace.h>
 #include "HD44780.h"
 //--------------------------------------------------------------------------------------------------------------------------------- DEFINE-Y ----------------------------------------
-#define F_CPU 8000000  //8MHz
+//#define F_CPU 8000000  //8MHz
 
 #define IN1	PB0;
 #define	IN2	PB1;
@@ -31,6 +31,9 @@
 #ifndef cbi
 #define cbi(reg,bit)		reg &= ~(_BV(bit))
 #endif
+#ifndef tbi
+#define tbi(reg,bit)		reg ^= (_BV(bit))
+#endif
 //--------------------------------------------------------------------------------------------------------------------------------- ---------------------------------------------------------
 
 //--------------------------------------------------------------------------------------------------------------------------------- ZMIENNE GLOBALNE ----------------------------------------
@@ -42,15 +45,15 @@
 									//10 - IN2					//PC1
 									//11 - IN3					//PC2
 									//12 - IN4					//PC3
+/*
+const short encoder0pinA = 2;		//A pin -> the interrupt pin 0			//PD2
+const short encoder0pinB = 4;		//B pin -> the digital pin 3			//PD4
+const short encoder1pinA = 3;		//A pin -> the interrupt pin 0			//PD3
+const short encoder1pinB = 5;		//B pin -> the digital pin 3			//PD4
+*/
 
-const short encoder0pinA = 2;		//A pin -> the interrupt pin 0
-const short encoder0pinB = 4;		//B pin -> the digital pin 3
-const short encoder1pinA = 3;		//A pin -> the interrupt pin 0
-const short encoder1pinB = 5;		//B pin -> the digital pin 3
-
-
-const short ENA		= 8;
-const short ENB		= 7;
+const short ENA		= 8;																											//				?????????????
+const short ENB		= 7;																											//				?????????????
 
 short encoder0PinALast;
 short encoder1PinALast;
@@ -88,8 +91,22 @@ uint32_t ADC_measure() {
 }
 //---------------------------------------------------------------------------------------------------------------------------------------------------------------------------
 
-//--------------------------------------------------------------------------------------------------------------------------------- PWM - FUNKCJE ----------------------------------------
-void TimerInit_PWM() {
+//--------------------------------------------------------------------------------------------------------------------------------- PWM - konfiguracja ----------------------------------------
+void TimerInit_PWM_1() {
+	sbi(TCCR0,WGM01);
+	sbi(TCCR0,WGM00);
+
+	sbi(TCCR0,COM01);
+	sbi(TCCR0,COM00);
+
+	sbi(TCCR0,CS02);
+//	sbi(TCCR0,CS01);
+//	sbi(TCCR0,CS00); // PRESKALER 256
+
+
+	OCR0 = 120;// 8 000 000 / 1024 (dzielnik) / 2 (2 razy na sekundę - okres 0.5 sekundy) = 15625
+}
+void TimerInit_PWM_2() {
 	sbi(TCCR2,WGM21);
 	sbi(TCCR2,WGM20);
 
@@ -98,11 +115,14 @@ void TimerInit_PWM() {
 
 	sbi(TCCR2,CS22);
 	sbi(TCCR2,CS21);
-	sbi(TCCR2,CS20); 								// PRESKALER 1024
+//	sbi(TCCR2,CS20); // PRESKALER 256
+
 
 	OCR2 = 120;// 8 000 000 / 1024 (dzielnik) / 2 (2 razy na sekundę - okres 0.5 sekundy) = 15625
 }
+//---------------------------------------------------------------------------------------------------------------------------------------------------------------------------
 
+//--------------------------------------------------------------------------------------------------------------------------------- Konfiguracja przerwania do realizacji PWM-ow ----------------------------------------
 //Inicjalizacja Timer1 do wywolywania przerwania z częstotliwością 2Hz
 void TimerInit_PRZERWANIA() {
 	sbi(TCCR1B,WGM12);
@@ -114,21 +134,88 @@ void TimerInit_PRZERWANIA() {
 	OCR1A = 3125; // 8 000 000 / 256 (dzielnik) / 2 (2 razy na sekundę - okres 0.5 sekundy) = 15625
 	sbi(TIMSK,OCIE1A);
 }
+//--------------------------------------------------------------------------------------------------------------------------------------------------------------------------
 
+//--------------------------------------------------------------------------------------------------------------------------------- Przerwania Zewnetrzne - konfiguracja ----------------------------------------
+
+void Przerwania_Zewnetrzne() {
+	sbi(GICR,INT0); // włączanie zewnętrznego przerwania na INT0
+	sbi(GICR,INT1); // włączanie zewnętrznego przerwania na INT1
+
+	sbi(MCUCR,ISC00); // zmiana stanu logicznego na INT0 rozpoczyna przerwanie
+	sbi(MCUCR,ISC10); // zmiana stanu logicznego na INT1 rozpoczyna przerwanie
+}
+
+//--------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+
+//--------------------------------------------------------------------------------------------------------------------------------- Enkoder - FUNKCJA POBIERANIA PREDKOSCI ----------------------------------------
+void wheelSpeed()
+{
+  int Lstate = !bit_is_clear(PIND, PD2);;							//digitalRead(encoder0pinA);
+  if((encoder0PinALast == 0) && Lstate==1)
+  {
+    int val = !bit_is_clear(PIND, PD5);;							//digitalRead(encoder0pinB);
+    if(val == 0 && Direction)
+    {
+      Direction = 0; //Reverse
+    }
+    else if(val == 1 && !Direction)
+    {
+      Direction = 1;  //Forward
+    }
+  }
+  encoder0PinALast = Lstate;
+
+  if(!Direction)
+	  duration++;
+  else
+	  duration--;
+}
+
+void wheelSpeed1()
+{
+  int Lstate1 = !bit_is_clear(PIND, PD3);;							//digitalRead(encoder1pinA);
+  if((encoder1PinALast == 0) && Lstate1==1)
+  {
+    int val = !bit_is_clear(PIND, PD6);							//digitalRead(encoder1pinB);
+    if(val == 0 && Direction1)
+    {
+      Direction1 = 0; //Reverse
+    }
+    else if(val == 1 && !Direction1)
+    {
+      Direction = 1;  //Forward
+    }
+  }
+  encoder1PinALast = Lstate1;
+
+  if(!Direction1)
+	  duration1++;
+  else
+	  duration1--;
+}
 //--------------------------------------------------------------------------------------------------------------------------------------------------------------------------
 
 void SerialBegin(){
 
 }
 void EncoderInit(){
+	Direction = 1; 								//Direction = true; //default -> Forward
+	Direction1 = 1;								//Direction1 = true;//default -> Forward
+
+	config_encoder_inputs();					//pinMode(encoder0pinA,INPUT);
+												//pinMode(encoder1pinA,INPUT);
+	Przerwania_Zewnetrzne();					//attachInterrupt(1, wheelSpeed1, CHANGE);
+												//attachInterrupt(0, wheelSpeed, CHANGE);
+
 
 }
 int PID(int wartosc_zadana, int wartosc_rzeczywista){
 	int Kd = 1;				//Stała czasowa całkowania
-	int Kp = 1;				//Wzmocnienie
-	int Ti = 10;
-	int Ki = 20;			//Stała czasowa całkowania
-	int Td = 1;				//Stała czasowa różniczkowania
+	int Kp = 1;				//Wzmocnienie członu P
+	int Ki = 20;			//Wzmocnienie członu I
+	//int Td = 1;			//Stała czasowa różniczkowania
+	//int Ti = 10;
 	int dt = 1;				//Czas zmian wielkości
 
 	int max_input = 500;
@@ -142,7 +229,19 @@ int PID(int wartosc_zadana, int wartosc_rzeczywista){
 	uchyb_poprzedni = uchyb;
 	return U;
 }
+void config_encoder_inputs(){
+	cbi(DDRD,PD2);
+	sbi(PORTD,PD2);
 
+	cbi(DDRD,PD3);
+	sbi(PORTD,PD3);
+
+	cbi(DDRD,PD4);
+	sbi(PORTD,PD4);
+
+	cbi(DDRD,PD5);
+	sbi(PORTD,PD5);
+}
 
 void setup(){
 	//LCD_Initalize(); // inicjalizacja wyświetlacza
@@ -151,6 +250,8 @@ void setup(){
 	SerialBegin();		//Serial.begin(9600);//Initialize the serial port
 	EncoderInit();		//EncoderInit();//Initialize the module
 
+	DDRB = 0xff;
+	PORTD = 0x00;
 	DDRD = 0xff;
 	PORTD = 0x00;
 	DDRC = 0xFF;		//ustawiamy rejestr kierunku C na wyjscie
@@ -160,7 +261,9 @@ void setup(){
 	  	  	  	  	  	//pinMode(IN4,OUTPUT);
 	//PORTD = 0x00;		//ustawiamy rejestr kierunku D na wejscie bez pullupa
 
-	TimerInit_PWM();
+	TimerInit_PWM_1();
+	TimerInit_PWM_2();
+
 	TimerInit_PRZERWANIA();
 
 	sbi(PORTA, PA0);
@@ -169,54 +272,31 @@ void setup(){
 
 	sei();
 
-
-
-	cbi(PORTB, PC0);	//digitalWrite(IN1,LOW);// rotate forward
-	sbi(PORTB, PC1 );	//digitalWrite(IN2,HIGH);
-	cbi(PORTB, PC2);	//digitalWrite(IN3,LOW);// rotate forward
-	sbi(PORTB, PC3);	//digitalWrite(IN4,HIGH);
+	cbi(PORTC, PC0);	//digitalWrite(IN1,LOW);// rotate forward
+	sbi(PORTC, PC1 );	//digitalWrite(IN2,HIGH);
+	cbi(PORTC, PC2);	//digitalWrite(IN3,LOW);// rotate forward
+	sbi(PORTC, PC3);	//digitalWrite(IN4,HIGH);
 }
 void loop(){
 	while(1>0){
-
+////zadanie wypelnienia PWM potencjometrem na A0  +  pobranie wypelnienia PWM z D7 wejsciem na A1
 		cbi(ADMUX,MUX0);
 		int wartosc_zadana = ADC_measure();								//pomiar wypelnienia sygnaly na wejsciu
 		sbi(ADMUX,MUX0);
 		int wartosc_rzeczywista = ADC_measure();
+		OCR0 = 255- wartosc_zadana/2;
 
-		//OCR2 = wartosc_zadana;		//analogWrite(ENA, i);// motor speed
 
-		int U = PID(wartosc_zadana, wartosc_rzeczywista);
-		if (OCR2-U > 0)
-			if (OCR2-U < 255)
-				OCR2 -= U;
+		int wartosc_sterujaca = PID(wartosc_zadana, wartosc_rzeczywista);															//natychmiastowa zmiana wypelnienia po pomiarze wejscia A0 (0-250)
+/////w momencie posiadania mozliwosci pomiaru duration1 i duration0 mozna liczyc wartsc sterujaca jako PID roznicy duration1 i duration0, zamiast PID roznicy wypelnienia
+		//int wartosc_sterujaca = PID(duration1, duration);								//(wartosc_zadana, wartosc_rzeczywista)
+		if (OCR2-wartosc_sterujaca > 0)
+			if (OCR2-wartosc_sterujaca < 255)
+				OCR2 -= wartosc_sterujaca;
 
-		//OCR0 = i;		//analogWrite(ENB, i);// motor speed
+		duration = 0;
+		duration1 = 0;
 		_delay_ms(50);	//delay(50);
-
-
-/*
-		for (int i=50;i<255;i++)
-		{
-			OCR2 = i;		//analogWrite(ENA, i);// motor speed
-			//OCR0 = i;		//analogWrite(ENB, i);// motor speed
-			_delay_ms(50);	//delay(50);
-		}
-*/
-/*
-		for (int i=50;i<255;i++)
-		{
-			analogWrite(ENA, i);// motor speed
-		    analogWrite(ENB, i);// motor speed
-		    delay(50);
-		    Serial.print("Pulse:");
-		    Serial.println(duration);
-		    duration = 0;
-		    Serial.print("Pulse1:");
-		    Serial.println(duration1);
-		    duration1 = 0;
-		}
-*/
 	}
 }
 
@@ -229,4 +309,9 @@ int main() {
 ISR(TIMER1_COMPA_vect) {
 
 }
-
+ISR(INT0_vect) {
+	wheelSpeed();
+}
+ISR(INT1_vect) {
+	wheelSpeed1();
+}
