@@ -1,0 +1,232 @@
+#include <avr/io.h>
+#include <stdlib.h>
+#include <string.h>
+#include <util/delay.h>
+
+#include <avr/io.h>
+#include <stdlib.h>
+#include <string.h>
+#include <stdio.h>
+#include <util/delay.h>
+#include <avr/sfr_defs.h>
+#include <math.h>
+#include <avr/interrupt.h>
+#include <avr/eeprom.h>
+#include <avr/pgmspace.h>
+#include "HD44780.h"
+//--------------------------------------------------------------------------------------------------------------------------------- DEFINE-Y ----------------------------------------
+#define F_CPU 8000000  //8MHz
+
+#define IN1	PB0;
+#define	IN2	PB1;
+#define	IN3 PB2;
+#define IN4 PB7;
+
+#ifndef _BV
+#define _BV(bit)				(1<<(bit))
+#endif
+#ifndef sbi
+#define sbi(reg,bit)		reg |= (_BV(bit))
+#endif
+#ifndef cbi
+#define cbi(reg,bit)		reg &= ~(_BV(bit))
+#endif
+//--------------------------------------------------------------------------------------------------------------------------------- ---------------------------------------------------------
+
+//--------------------------------------------------------------------------------------------------------------------------------- ZMIENNE GLOBALNE ----------------------------------------
+									//2  - wejście enkodera
+									//3  - wejście enkodera
+									//7  - ENB
+									//8  - ENA
+									//9  - IN1					//PC0
+									//10 - IN2					//PC1
+									//11 - IN3					//PC2
+									//12 - IN4					//PC3
+
+const short encoder0pinA = 2;		//A pin -> the interrupt pin 0
+const short encoder0pinB = 4;		//B pin -> the digital pin 3
+const short encoder1pinA = 3;		//A pin -> the interrupt pin 0
+const short encoder1pinB = 5;		//B pin -> the digital pin 3
+
+
+const short ENA		= 8;
+const short ENB		= 7;
+
+short encoder0PinALast;
+short encoder1PinALast;
+int duration;					//the number of the pulses
+int duration1;					//the number of the pulses
+short Direction;				//the rotation direction
+short Direction1;				//the rotation direction
+
+char text[20];  				// zmienna pomocnicza na napis
+
+int uchyb_poprzedni = 0; 			//uchyb poprzeni
+int C = 0;  						//częśc całkująca
+//--------------------------------------------------------------------------------------------------------------------------------- ---------------------------------------------------------
+
+//--------------------------------------------------------------------------------------------------------------------------------- POMIAR ANALOGOWY - FUNKCJE ----------------------------------------
+void ADC_init() {   								// funkcja dokonująca konfiguracji przetwornika
+	sbi(ADMUX,REFS0);								// Ustawienie źródła referencyjnego na AVCC = 5.0 V
+	sbi(ADCSRA,ADPS0);								// Ustawienie podzielnika częstotliwości
+	sbi(ADCSRA,ADPS1);
+	sbi(ADCSRA,ADPS2);
+	sbi(ADCSRA,ADEN);								// Uruchomienie układu przetwornika
+}
+uint32_t ADC_10bit() {
+	sbi(ADCSRA,ADSC);								// Bit rozpoczynający konwersję
+	loop_until_bit_is_clear(ADCSRA,ADSC);			// Oczekiwanie na wyzerowanie bitu konwersji
+	return ADC;										// Zwracanie zmierzonej wartości				0-1024
+}
+// Funkcja przetabiająca wartośc ADC na Volty
+uint32_t ADC_measure() {
+	int max_out_value = 500;
+	int max_in_value = 1024;
+	uint32_t pomiar = ADC_10bit(); 	 							// wykonanie pomiaru
+	uint32_t wynik = pomiar * max_out_value / max_in_value;  	// przerobienie pomiaru na wolty
+	return wynik;
+}
+//---------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+
+//--------------------------------------------------------------------------------------------------------------------------------- PWM - FUNKCJE ----------------------------------------
+void TimerInit_PWM() {
+	sbi(TCCR2,WGM21);
+	sbi(TCCR2,WGM20);
+
+	sbi(TCCR2,COM21);
+	sbi(TCCR2,COM20);
+
+	sbi(TCCR2,CS22);
+	sbi(TCCR2,CS21);
+	sbi(TCCR2,CS20); 								// PRESKALER 1024
+
+	OCR2 = 120;// 8 000 000 / 1024 (dzielnik) / 2 (2 razy na sekundę - okres 0.5 sekundy) = 15625
+}
+
+//Inicjalizacja Timer1 do wywolywania przerwania z częstotliwością 2Hz
+void TimerInit_PRZERWANIA() {
+	sbi(TCCR1B,WGM12);
+
+	sbi(TCCR1B,CS12);
+//	sbi(TCCR1B,CS11);
+//	sbi(TCCR1B,CS10); // PRESKALER 256
+
+	OCR1A = 3125; // 8 000 000 / 256 (dzielnik) / 2 (2 razy na sekundę - okres 0.5 sekundy) = 15625
+	sbi(TIMSK,OCIE1A);
+}
+
+//--------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+
+void SerialBegin(){
+
+}
+void EncoderInit(){
+
+}
+int PID(int wartosc_zadana, int wartosc_rzeczywista){
+	int Kd = 1;				//Stała czasowa całkowania
+	int Kp = 1;				//Wzmocnienie
+	int Ti = 10;
+	int Ki = 20;			//Stała czasowa całkowania
+	int Td = 1;				//Stała czasowa różniczkowania
+	int dt = 1;				//Czas zmian wielkości
+
+	int max_input = 500;
+	int uchyb = wartosc_zadana/10 - wartosc_rzeczywista/10;
+
+	if (C + ((uchyb_poprzedni + uchyb)/2)*dt < max_input)
+		if (C + ((uchyb_poprzedni + uchyb)/2)*dt > -max_input)
+			C = C + ((uchyb_poprzedni + uchyb)/2)*dt;
+
+	int U = Kp*uchyb + (C/Ki) + Kd*(uchyb-uchyb_poprzedni)/dt;  				//sygnał sterujący//
+	uchyb_poprzedni = uchyb;
+	return U;
+}
+
+
+void setup(){
+	//LCD_Initalize(); // inicjalizacja wyświetlacza
+	//LCD_Home();
+
+	SerialBegin();		//Serial.begin(9600);//Initialize the serial port
+	EncoderInit();		//EncoderInit();//Initialize the module
+
+	DDRD = 0xff;
+	PORTD = 0x00;
+	DDRC = 0xFF;		//ustawiamy rejestr kierunku C na wyjscie
+						//pinMode(IN1,OUTPUT);
+	  	  	  	  	    //pinMode(IN2,OUTPUT);
+	  	  	  	  	  	//pinMode(IN3,OUTPUT);
+	  	  	  	  	  	//pinMode(IN4,OUTPUT);
+	//PORTD = 0x00;		//ustawiamy rejestr kierunku D na wejscie bez pullupa
+
+	TimerInit_PWM();
+	TimerInit_PRZERWANIA();
+
+	sbi(PORTA, PA0);
+	sbi(PORTA, PA1);
+	ADC_init();   		// inicjalizacja przetwornika
+
+	sei();
+
+
+
+	cbi(PORTB, PC0);	//digitalWrite(IN1,LOW);// rotate forward
+	sbi(PORTB, PC1 );	//digitalWrite(IN2,HIGH);
+	cbi(PORTB, PC2);	//digitalWrite(IN3,LOW);// rotate forward
+	sbi(PORTB, PC3);	//digitalWrite(IN4,HIGH);
+}
+void loop(){
+	while(1>0){
+
+		cbi(ADMUX,MUX0);
+		int wartosc_zadana = ADC_measure();								//pomiar wypelnienia sygnaly na wejsciu
+		sbi(ADMUX,MUX0);
+		int wartosc_rzeczywista = ADC_measure();
+
+		//OCR2 = wartosc_zadana;		//analogWrite(ENA, i);// motor speed
+
+		int U = PID(wartosc_zadana, wartosc_rzeczywista);
+		if (OCR2-U > 0)
+			if (OCR2-U < 255)
+				OCR2 -= U;
+
+		//OCR0 = i;		//analogWrite(ENB, i);// motor speed
+		_delay_ms(50);	//delay(50);
+
+
+/*
+		for (int i=50;i<255;i++)
+		{
+			OCR2 = i;		//analogWrite(ENA, i);// motor speed
+			//OCR0 = i;		//analogWrite(ENB, i);// motor speed
+			_delay_ms(50);	//delay(50);
+		}
+*/
+/*
+		for (int i=50;i<255;i++)
+		{
+			analogWrite(ENA, i);// motor speed
+		    analogWrite(ENB, i);// motor speed
+		    delay(50);
+		    Serial.print("Pulse:");
+		    Serial.println(duration);
+		    duration = 0;
+		    Serial.print("Pulse1:");
+		    Serial.println(duration1);
+		    duration1 = 0;
+		}
+*/
+	}
+}
+
+int main() {
+	setup();
+	loop();
+}
+
+//Funkcja uruchamiana z przerwaniem po przepelnieniu licznika w timer1
+ISR(TIMER1_COMPA_vect) {
+
+}
+
