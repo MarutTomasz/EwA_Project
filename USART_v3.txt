@@ -1,0 +1,180 @@
+#include <avr/io.h>
+#include <stdlib.h>
+#include <string.h>
+#include <stdio.h>
+#include <util/delay.h>
+#include <stdint.h>
+#include <avr/interrupt.h>
+
+//-------------------------------------------------------------------------------------------MAKROS---------------------------------------------------------------------------------------
+#ifndef _BV
+#define _BV(bit)				(1<<(bit))
+#endif
+#ifndef sbi
+#define sbi(reg,bit)		reg |= (_BV(bit))
+#endif
+#ifndef cbi
+#define cbi(reg,bit)		reg &= ~(_BV(bit))
+#endif
+#ifndef tbi
+#define tbi(reg,bit)		reg ^= (_BV(bit))
+#endif
+//----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+
+//-----------------------------------------------------------------------------------------PROGRAM COMUNICATION CONSTAT PARAMETERS-----------------------------------------------------------------------------------------
+#define FOSC 8000000   // Clock Speed
+#define BAUD 9600
+#define MYUBRR FOSC/16/BAUD -1
+//----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+
+//-----------------------------------------------------------------------------------------PROGRAM GLOBAL VARIABLES-----------------------------------------------------------------------------------------
+#define BUFF_SIZE 50
+int  Comunication_Index = 0;
+char Comunication_Buffor[BUFF_SIZE];		// [!][1][2][3][.][4][5][a][1][2][b][][]	//IMPORTANT NOTATION !!!
+
+int Frequency_Interrupt = 0;
+//----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+
+//----------------------------------------------------------------------------------------INTERRUPT  FUNCTIONS------------------------------------------------------------------------------------------
+//Inicjalizacja Timer1 do wywolywania przerwania z częstotliwością 10Hz
+void TimerInit_PRZERWANIA() {
+	sbi(TCCR1B,WGM12);
+
+	sbi(TCCR1B,CS12);	// PRESKALER 256
+//	sbi(TCCR1B,CS11);
+//	sbi(TCCR1B,CS10);
+
+
+	OCR1A = 3125;  // 8 000 000 / 256 (dzielnik) / 10 (10 razy na sekundę) = 3125
+	OCR1A = 31250; // 8 000 000 / 256 (dzielnik) / 1  (1 razy na sekundę)  = 31250
+	sbi(TIMSK,OCIE1A);
+}
+//----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+
+//----------------------------------------------------------------------------------------COMMUNICATION  FUNCTIONS------------------------------------------------------------------------------------------
+void USART_Init(){
+	/*Set baud rate */
+	UBRRH = (MYUBRR >> 8); // Nie mam zielonego pojęcia co to, ale instrukcja tak każe
+	UBRRL = MYUBRR;   // Tak też
+
+	UCSRB |= (1 << RXEN) | (1 << TXEN);      // Enable receiver and transmitter
+	UCSRB |= (1 << RXCIE);                   // Enable the receiver interrupt
+	UCSRB |= (1 << TXCIE);                  // Enable the transmit interrupt
+	UCSRC |= (1 << URSEL) |(1 << UCSZ1) | (1 << UCSZ0);    // Set frame: 8data, 1 stp
+}
+
+void USART_Transmit(unsigned char data) {
+	while ( !( UCSRA & (1<<UDRE)) );// Nie wiem czy to zadziała, bo nie umiem wysyłac. // Czekaj na opróżnienie budora transmicji
+	UDR = data; // Włóż dane do UDR, wyślij dane
+}
+
+unsigned char USART_Receive () {
+	while ( !(UCSRA & 0b10000000));
+	return UDR;	// odbierz dane z bufora
+}
+//----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+
+//-------------------------------------------------------------------------------------------------------My Utils Functions---------------------------------------------------------------------------
+void change_interrupt_frequency(){
+	Frequency_Interrupt = atoi(Comunication_Buffor);
+}
+void clear__comunication_buffor(){
+	Comunication_Index = 0;
+	for(int i=0;i<BUFF_SIZE;i++){
+		Comunication_Buffor[i] = ' ';
+	}
+}
+void set_char_to__comunication_buffor(char rx_byte){
+	if(Comunication_Index+1 > BUFF_SIZE){
+		clear__comunication_buffor();
+	}
+	if(rx_byte == '!'){
+		clear__comunication_buffor();
+		return;
+	}
+	if(rx_byte == 'a'){
+		change_interrupt_frequency();
+		clear__comunication_buffor();
+		return;
+	}
+
+	Comunication_Buffor[Comunication_Index] = rx_byte;
+	Comunication_Index++;
+}
+
+//----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+
+//--------------------------------------------------------------------------------------------------------M A I N  F U N C T I ON--------------------------------------------------------------------------
+int main() {
+	DDRD = 0b00000011; // nie wiem czy ostatni bit nie powinien byc 0;
+	DDRB = 0xff;
+
+	USART_Init(); // inicjalizacja komunikacji
+	TimerInit_PRZERWANIA();
+	clear__comunication_buffor();
+	sei(); // włączanie przerwań
+
+	while (1)
+	{
+		if(Frequency_Interrupt != 0){
+			char tmp[3];
+			sprintf(tmp,"%d", Frequency_Interrupt);
+			for(int i=0;i<3;i++){
+				USART_Transmit(tmp[i]);
+			}
+		}
+
+		_delay_ms(1000);
+
+	}
+}
+//----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+
+//---------------------------------------------------------------------------------------------COMMUNICATION  INTERRUPT  FUNCTIONS-------------------------------------------------------------------------------------
+ISR (USART_RXC_vect)		//umieszczenie tu petli for ktora zbiera chary - przerywa komunikacje -> USART_Receive() wpada w nieskonczona petle
+{
+	volatile char rx_byte = USART_Receive();			// get the byte
+	set_char_to__comunication_buffor(rx_byte);
+
+
+
+	/*
+	switch (rx_byte) {
+		case 'a':
+			sbi(PORTB,PB0);
+			break;
+		case 'b':
+			cbi(PORTB,PB0);
+			break;
+	}
+	rx_byte = 0;
+	tbi(PORTB,PB0);
+	*/
+}
+
+ISR (USART_TXC_vect)
+{}
+//----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+
+//---------------------------------------------------------------------------------------------INTERRUPT  FUNCTIONS-------------------------------------------------------------------------------------
+ISR(TIMER1_COMPA_vect) {
+	tbi(PORTB,PB0);
+}
+//----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

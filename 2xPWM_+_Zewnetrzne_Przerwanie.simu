@@ -294,6 +294,9 @@ Connector-127:
 Connector-129: 
 <item endpinid="LedBar-9-led5-pinP" startpinid="atmega32-34-PC2" vflip="1" hflip="1" id="Connector-120" labely="-24" labelrot="0" Show_id="false" itemtype="Connector" y="-132" pointList="-372,-132,-224,-132,-224,-136,-212,-136" x="-372" labelx="-16" rotation="0" enodeid="Circ_eNode-130" valLabely="0" valLabRot="0" objectName="Connector-129" valLabelx="0"/>
  
+Connector-132: 
+<item endpinid="LedBar-9-led4-pinP" startpinid="atmega32-34-PC3" vflip="1" hflip="1" id="Connector-132" labely="-24" labelrot="0" Show_id="false" itemtype="Connector" y="-140" pointList="-372,-140,-240,-140,-240,-144,-212,-144" x="-372" labelx="-16" rotation="0" enodeid="enode-132" valLabely="0" valLabRot="0" objectName="Connector-132" valLabelx="0"/>
+ 
 PlotterWidget-131: 
 <item sizePolicy="" normalGeometry="" frameSize="" baseSize="" Scale="1" inputMethodHints="0" windowIconText="" statusTip="" styleSheet="" y="0" acceptDrops="false" minimized="false" fullScreen="false" objectName="PlotterWidget-131" toolTip="" modal="false" contextMenuPolicy="1" palette="" windowModified="false" size="" minimumWidth="200" font="MS Shell Dlg 2,8.25,-1,5,50,0,0,0,0,0" windowOpacity="1" MinVolt="-500" minimumSize="" windowModality="0" pos="" sizeHint="" maximumSize="" locale="" childrenRegion="" isActiveWindow="true" maximumWidth="1000" whatsThis="" windowIcon="" updatesEnabled="true" layoutDirection="0" x="0" minimumSizeHint="" itemtype="Plotter" childrenRect="" height="200" mouseTracking="false" focusPolicy="0" frameGeometry="" enabled="true" accessibleDescription="" toolTipDuration="-1" Tracks="1" geometry="" windowTitle="" cursor="" maximumHeight="200" autoFillBackground="false" MaxVolt="500" visible="false" rect="" sizeIncrement="" maximized="false" windowFilePath="" minimumHeight="200" width="200" accessibleName="" focus="false"/>
  

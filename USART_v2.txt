@@ -1,0 +1,132 @@
+#include <avr/io.h>
+#include <stdlib.h>
+#include <string.h>
+#include <stdio.h>
+#include <util/delay.h>
+#include <stdint.h>
+#include <avr/interrupt.h>
+
+//-------------------------------------------------------------------------------------------MAKROS---------------------------------------------------------------------------------------
+#ifndef _BV
+#define _BV(bit)				(1<<(bit))
+#endif
+#ifndef sbi
+#define sbi(reg,bit)		reg |= (_BV(bit))
+#endif
+#ifndef cbi
+#define cbi(reg,bit)		reg &= ~(_BV(bit))
+#endif
+//----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+
+//-----------------------------------------------------------------------------------------PROGRAM COMUNICATION CONSTAT PARAMETERS-----------------------------------------------------------------------------------------
+#define FOSC 8000000   // Clock Speed
+#define BAUD 9600
+#define MYUBRR FOSC/16/BAUD -1
+//----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+
+
+//----------------------------------------------------------------------------------------COMMUNICATION  FUNCTIONS------------------------------------------------------------------------------------------
+void USART_Init(){
+	/*Set baud rate */
+	UBRRH = (MYUBRR >> 8); // Nie mam zielonego pojęcia co to, ale instrukcja tak każe
+	UBRRL = MYUBRR;   // Tak też
+
+	UCSRB |= (1 << RXEN) | (1 << TXEN);      // Enable receiver and transmitter
+	UCSRB |= (1 << RXCIE);                   // Enable the receiver interrupt
+	UCSRB |= (1 << TXCIE);                  // Enable the transmit interrupt
+	UCSRC |= (1 << URSEL) |(1 << UCSZ1) | (1 << UCSZ0);    // Set frame: 8data, 1 stp
+}
+
+void USART_Transmit(unsigned char data) {
+	while ( !( UCSRA & (1<<UDRE)) );// Nie wiem czy to zadziała, bo nie umiem wysyłac. // Czekaj na opróżnienie budora transmicji
+	UDR = data; // Włóż dane do UDR, wyślij dane
+}
+
+unsigned char USART_Receive () {
+	while ( !(UCSRA & 0b10000000));
+	return UDR;	// odbierz dane z bufora
+}
+//----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+
+//--------------------------------------------------------------------------------------------------------M A I N  F U N C T I ON--------------------------------------------------------------------------
+int main() {
+	// Na ogół nie jestem pewien tych bitów bo robię na sucho
+	DDRD = 0b00000011; // nie wiem czy ostatni bit nie powinien byc 0;
+	DDRC = 0x00;
+	DDRB = 0b00001111;
+
+	ADMUX = 0b01000000;
+	ADCSRA = 0b10000111;
+
+	TCCR1B |= (1<<WGM12); //włączenie trybu CTC
+	TCCR1B |= (1<<CS10) | (1<<CS11); //ustawienie preskalera na 64
+	TCCR1A |= (1<<COM1A0);
+	OCR1A = 25000; //wartość do której zlicza licznik, i tak się zmieni, ale coś musi byc na początku
+
+	USART_Init(); // inicjalizacja komunikacji
+
+	sei(); // włączanie przerwań
+
+	while (1)
+	{
+		/*
+		// Start an ADC conversion by setting ADSC bit (bit 6)
+		ADCSRA = ADCSRA | (1 << ADSC);
+		// Wait until the ADSC bit has been cleared
+		while(ADCSRA & (1 << ADSC));
+
+		OCR1A = 12500 - (10*ADC);
+		*/
+
+
+
+
+		USART_Transmit('q');
+		_delay_ms(500);
+
+	}
+}
+//----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+
+//---------------------------------------------------------------------------------------------COMMUNICATION  INTERRUPT  FUNCTIONS-------------------------------------------------------------------------------------
+ISR (USART_RXC_vect)
+{
+	volatile char rx_byte = USART_Receive();			// get the byte
+//	ReceivedChar = UDR;  // Nie wiem czy to potrzebne ->  Read data from the RX buffer
+//	UDR = ReceivedChar;  // |--->   Write the data to the TX buffer
+
+	switch (rx_byte) {
+		case 'a':
+			sbi(PORTB,PB0);
+			break;
+		case 'b':
+			cbi(PORTB,PB0);
+			break;
+	}
+	rx_byte = 0;
+}
+
+ISR (USART_TXC_vect)
+{}
+//----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+
+//---------------------------------------------------------------------------------------------INTERRUPT  FUNCTIONS-------------------------------------------------------------------------------------
+
+//----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
